@@ -76,6 +76,7 @@ MODEL:
     NAME: "build_efficientnet_fpn_backbone"
   EFFICIENTNET:
     NAME: "efficientnet_b0" # efficientnet_b1, efficientnet_2,  ..., efficientnet_b7
+    OUT_FEATURES: ["stride4", "stride8", "stride16", "stride32"]
   ...
 ```
 
