@@ -6,6 +6,7 @@ _ext
 detectron2_backbone.egg-info/
 build/
 dist/
+debug/
 
 # pytorch/python/numpy formats
 *.pth

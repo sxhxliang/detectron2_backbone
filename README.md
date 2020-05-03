@@ -64,10 +64,26 @@ MODEL:
 - build_resnet18_fpn_backbone
 - build_fcos_resnet18_fpn_backbone
 
-#### shufflenetv2:
-- build_shufflenet_v2_backbone
-- build_shufflenet_v2_fpn_backbone
-- build_fcos_shufflenet_v2_fpn_backbone
+#### efficientnet:
+- build_efficientnet_backbone
+- build_efficientnet_fpn_backbone
+- build_fcos_efficientnet_fpn_backbone
+``` yaml
+# your_config.yaml
+MODEL:
+  WEIGHTS: "your_path/resnet18_detectron2.pth"
+  BACKBONE:
+    NAME: "build_efficientnet_fpn_backbone"
+  EFFICIENTNET:
+    NAME: "efficientnet_b0" # efficientnet_b1, efficientnet_2,  ..., efficientnet_b7
+  ...
+```
+
+
+#### dla:
+- build_dla_backbone
+- build_dla_fpn_backbone
+- build_fcos_dla_fpn_backbone
 
 #### resnest:
 - build_resnest_backbone
