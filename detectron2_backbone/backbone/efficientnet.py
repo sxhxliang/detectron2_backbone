@@ -4,10 +4,10 @@
 # Descripttion: https://github.com/sxhxliang/detectron2_backbone
 # version: 0.0.1
 # Author: Shihua Liang (sxhx.liang@gmail.com)
-# FilePath: /detectron2_backbone/backbone/efficientnet.py
+# FilePath: /detectron2_backbone/detectron2_backbone/backbone/efficientnet.py
 # Create: 2020-05-03 22:08:40
 # LastAuthor: Shihua Liang
-# lastTime: 2020-05-03 23:14:12
+# lastTime: 2020-05-04 12:26:33
 # --------------------------------------------------------
 import math
 
@@ -31,6 +31,8 @@ from detectron2.modeling.backbone.fpn import FPN, LastLevelMaxPool
 from torchvision import models
 
 from .fpn import LastLevelP6, LastLevelP6P7
+from ..layers import Conv2d, SeparableConv2d, MaxPool2d, Swish, MemoryEfficientSwish
+
 
 # https://github.com/lukemelas/EfficientNet-PyTorch/releases
 model_urls = {
@@ -54,75 +56,6 @@ params = {
     'efficientnet_b6': (1.8, 2.6, 528, 0.5),
     'efficientnet_b7': (2.0, 3.1, 600, 0.5),
 }
-
-class SwishImplementation(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, i):
-        result = i * torch.sigmoid(i)
-        ctx.save_for_backward(i)
-        return result
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        i = ctx.saved_variables[0]
-        sigmoid_i = torch.sigmoid(i)
-        return grad_output * (sigmoid_i * (1 + i * (1 - sigmoid_i)))
-
-class MemoryEfficientSwish(nn.Module):
-    def forward(self, x):
-        return SwishImplementation.apply(x)
-
-class Swish(nn.Module):
-    def forward(self, x):
-        return x * torch.sigmoid(x)
-
-class Conv2d(nn.Conv2d):
-    def __init__(self, 
-                in_channels, out_channels, kernel_size, 
-                stride=1, padding=0, dilation=1, groups=1,
-                bias=True, padding_mode='zeros', image_size=None):
-
-        kernel_size = _pair(kernel_size)
-        stride = _pair(stride)
-        padding = _pair(padding)
-        dilation = _pair(dilation)
-
-        if padding_mode == 'static_same':
-            p = max(kernel_size[0] - stride[0], 0)
-            # tuple(pad_l, pad_r, pad_t, pad_b)
-            padding = (p // 2, p - p // 2, p // 2, p - p // 2)
-        elif padding_mode == 'dynamic_same':
-            padding = _pair(0)
-    
-        super(Conv2d, self).__init__(
-            in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode)
-
-    def conv2d_forward(self, input, weight):
-        if self.padding_mode == 'circular':
-            expanded_padding = ((self.padding[1] + 1) // 2, self.padding[1] // 2,
-                                (self.padding[0] + 1) // 2, self.padding[0] // 2)
-            input = F.pad(input, expanded_padding, mode='circular')
-
-        if  self.padding_mode == 'dynamic_same':
-            ih, iw = x.size()[-2:]
-            kh, kw = self.weight.size()[-2:]
-            sh, sw = self.stride
-            oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
-            pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
-            pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
-            if pad_h > 0 or pad_w > 0:
-                # tuple(pad_l, pad_r, pad_t, pad_b)
-                input = F.pad(input, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
-        
-        if  self.padding_mode == 'static_same':
-                input = F.pad(input, self.padding)
-
-        return F.conv2d(input, 
-                        weight, self.bias, self.stride,
-                        _pair(0), self.dilation, self.groups)
-
-    def forward(self, input):
-        return self.conv2d_forward(input, self.weight)
 
 class MBConvBlock(nn.Module):
     def __init__(self,

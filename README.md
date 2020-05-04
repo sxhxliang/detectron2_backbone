@@ -71,12 +71,14 @@ MODEL:
 ``` yaml
 # your_config.yaml
 MODEL:
-  WEIGHTS: "your_path/resnet18_detectron2.pth"
+  WEIGHTS: "your_path/efficientnet_b0_detectron2.pth"
   BACKBONE:
     NAME: "build_efficientnet_fpn_backbone"
   EFFICIENTNET:
     NAME: "efficientnet_b0" # efficientnet_b1, efficientnet_2,  ..., efficientnet_b7
     OUT_FEATURES: ["stride4", "stride8", "stride16", "stride32"]
+  FPN:
+    IN_FEATURES: ["stride4", "stride8", "stride16", "stride32"]
   ...
 ```
 
@@ -105,9 +107,22 @@ MODEL:
 - build_hrnet_backbone
 - build_hrnet_fpn_backbone
 
-#### dla:
-- build_dla_backbone
-- build_dla_fpn_backbone
-- build_fcos_dla_fpn_backbone
+#### bifpn:
+- build_efficientnet_bifpn_backbone
+``` yaml
+# your_config.yaml
+MODEL:
+  WEIGHTS: "your_path/efficientnet_b0_detectron2.pth"
+  BACKBONE:
+    NAME: "build_efficientnet_bifpn_backbone"
+  EFFICIENTNET:
+    NAME: "efficientnet_b0" # efficientnet_b1, efficientnet_2,  ..., efficientnet_b7
+    OUT_FEATURES: ["stride8", "stride16", "stride32"]
+  FPN:
+    IN_FEATURES: ["stride8", "stride16", "stride32"]
+    OUT_CHANNELS: 64
+    REPEAT: 3
+  ...
+```
 
 

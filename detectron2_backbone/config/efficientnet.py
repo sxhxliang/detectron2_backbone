@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # --------------------------------------------------------
-# Descripttion: https://github.com/AaronLeong/HoloCV
+# Descripttion: https://github.com/sxhxliang/detectron2_backbone
 # version: 0.0.1
 # Author: Shihua Liang (sxhx.liang@gmail.com)
 # FilePath: /detectron2_backbone/config/efficientnet.py
