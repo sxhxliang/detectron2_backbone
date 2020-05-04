@@ -7,7 +7,7 @@
 # FilePath: /detectron2_backbone/detectron2_backbone/backbone/efficientnet.py
 # Create: 2020-05-03 22:08:40
 # LastAuthor: Shihua Liang
-# lastTime: 2020-05-04 12:26:33
+# lastTime: 2020-05-04 14:38:26
 # --------------------------------------------------------
 import math
 
@@ -253,7 +253,8 @@ class EfficientNet(Backbone):
             x = self._dropout(x)
             x = self._fc(x)
             return x
-        return features
+        assert len(self._out_feature_strides.keys()) == len(features)
+        return dict(zip(self._out_feature_strides.keys(), features))
     
     def set_swish(self, memory_efficient=True):
         """Sets swish function as memory efficient (for training) or standard (for export)"""

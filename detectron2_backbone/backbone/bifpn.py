@@ -7,7 +7,7 @@
 # FilePath: /detectron2_backbone/detectron2_backbone/backbone/bifpn.py
 # Create: 2020-05-04 10:26:54
 # LastAuthor: Shihua Liang
-# lastTime: 2020-05-04 12:04:18
+# lastTime: 2020-05-04 14:37:58
 # --------------------------------------------------------
 import math
 
@@ -22,7 +22,7 @@ from detectron2.modeling.backbone import Backbone
 from detectron2.modeling.backbone.build import BACKBONE_REGISTRY
 from detectron2.layers import FrozenBatchNorm2d, ShapeSpec, get_norm
 
-from ..layers import Conv2d, SeparableConv2d, MaxPool2d, Swish
+from ..layers import Conv2d, SeparableConv2d, MaxPool2d, Swish, MemoryEfficientSwish
 from .efficientnet import build_efficientnet_backbone
 
 class BiFPNLayer(nn.Module):
@@ -80,18 +80,19 @@ class BiFPNLayer(nn.Module):
         if attention:
             self.init_attention_weights()
         self._downsample = MaxPool2d(3,2)
-        self._swish = Swish()
+        self._swish = MemoryEfficientSwish()
         
     def _forward_lateral(self, inputs):
         c3, c4, c5 = inputs
         c3 = self.lateral3(c3)
         c4 = self.lateral4(c4)
-        c5 = self.lateral5(c5)
+        
         if self.top_block is None:
             c6 = self.lateral6(c5)
             c7 = self.lateral7(c6)
         else:
             c6, c7 = self.top_block(c5)
+        c5 = self.lateral5(c5)
         return c3, c4, c5, c6, c7
 
     def init_attention_weights(self):
@@ -141,8 +142,7 @@ class BiFPNLayer(nn.Module):
     def _forward_up(self,inputs):
         p3_in, p4_in, p5_in, p6_in, p7_in = inputs
 
-        p6_w1 = self._weight_act(self.p6_w1)
-        
+        # print( p3_in.shape, p4_in.shape, p5_in.shape, p6_in.shape, p7_in.shape)
         # Connections for P6_0 and P7_0 to P6_1 respectively
         p6_up = self.conv6_up(self._swish(self._feature_funsion(p6_in, p7_in, 6)))
         p5_up = self.conv5_up(self._swish(self._feature_funsion(p5_in, p6_up, 5)))
@@ -169,13 +169,17 @@ class BiFPNLayer(nn.Module):
         return p3_up, p4_out, p5_out, p6_out, p7_out
 
     def forward(self,inputs):
-        p3 =p4 = p5 = None
+        p3 = p4 = p5 = None
         if self.lateral:
             p3, p4, p5 = inputs
             inputs = self._forward_lateral(inputs)
 
         up_inputs = self._forward_up(inputs)
         return self._forward_down(inputs, up_inputs, p3, p4, p5)
+
+    def set_swish(self, memory_efficient=True):
+        """Sets swish function as memory efficient (for training) or standard (for export)"""
+        self._swish = MemoryEfficientSwish() if memory_efficient else Swish()
 
 class BiFPN(Backbone):
     """
@@ -250,8 +254,10 @@ class BiFPN(Backbone):
         self._out_feature_channels = {k: out_channels for k in self._out_features}
         self._size_divisibility = in_strides[-1]
 
-    def forward(self, inputs):
-        features = self.bifpn(inputs)
+    def forward(self, x):
+        bottom_up_features = self.bottom_up(x)
+        features = [bottom_up_features[f] for f in self.in_features]
+        features = self.bifpn(features)
         assert len(self._out_features) == len(features)
         return dict(zip(self._out_features, features))
 

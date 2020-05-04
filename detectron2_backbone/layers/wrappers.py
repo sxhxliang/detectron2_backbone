@@ -7,7 +7,7 @@
 # FilePath: /detectron2_backbone/detectron2_backbone/layers/wrappers.py
 # Create: 2020-05-04 10:28:09
 # LastAuthor: Shihua Liang
-# lastTime: 2020-05-04 12:26:12
+# lastTime: 2020-05-04 14:35:38
 # --------------------------------------------------------
 import math
 
@@ -157,17 +157,18 @@ class SeparableConv2d(_Conv2d):
             )
         # pointwise_conv
         point_kernel_size = _pair(1)
+        self.out_channels = out_channels
         self.point_stride = _pair(1)
         self.point_padding = _pair(0)
         self.point_dilation = _pair(1)
         self.point_groups = 1
 
         self.weight2 = Parameter(torch.Tensor(
-                out_channels, out_channels, *point_kernel_size))
+                out_channels, in_channels, *point_kernel_size))
         if bias:
             self.bias2 = Parameter(torch.Tensor(out_channels))
         else:
-            self.register_parameter('bias', None)
+            self.register_parameter('bias2', None)
         self.reset_point_parameters()
 
         self.norm = norm
@@ -192,6 +193,23 @@ class SeparableConv2d(_Conv2d):
         if self.activation is not None:
             x = self.activation(x)
         return x
+
+    def extra_repr(self):
+        s = ('{in_channels}, {out_channels}, kernel_size={kernel_size}'
+             ', stride={stride}')
+        if self.padding != (0,) * len(self.padding):
+            s += ', padding={padding}'
+        if self.dilation != (1,) * len(self.dilation):
+            s += ', dilation={dilation}'
+        if self.output_padding != (0,) * len(self.output_padding):
+            s += ', output_padding={output_padding}'
+        if self.groups != 1:
+            s += ', groups={groups}'
+        if self.bias2 is None:
+            s += ', bias=False'
+        if self.padding_mode != 'zeros':
+            s += ', padding_mode={padding_mode}'
+        return s.format(**self.__dict__)
 
 
 class MaxPool2d(nn.Module):
