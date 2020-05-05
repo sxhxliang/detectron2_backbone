@@ -125,4 +125,20 @@ MODEL:
   ...
 ```
 
+### Convert Model for Detectron2
 
+```bash
+python3 -m detectron2_backbone.tools.convert_weight --help
+``` 
+
+``` bash
+# download model
+wget https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b0-355c32eb.pth -P your_path
+# convert weight
+python3 -m detectron2_backbone.tools.convert_weight --model your_path/efficientnet-b0-355c32eb.pth --output your_path/efficientnet_b0_detectron2.pth
+``` 
+``` yaml
+your_config.yaml
+MODEL:
+  WEIGHTS: "your_path/efficientnet_b0_detectron2.pth"
+``` 
