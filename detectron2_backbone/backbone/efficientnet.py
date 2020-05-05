@@ -7,7 +7,7 @@
 # FilePath: /detectron2_backbone/detectron2_backbone/backbone/efficientnet.py
 # Create: 2020-05-03 22:08:40
 # LastAuthor: Shihua Liang
-# lastTime: 2020-05-04 14:38:26
+# lastTime: 2020-05-05 11:42:13
 # --------------------------------------------------------
 import math
 
@@ -73,8 +73,8 @@ class MBConvBlock(nn.Module):
         self.use_se = use_se
         assert stride in [1, 2]
         assert kernel_size in [3, 5]
-
-        bn_mom=0.99
+        bn_mom=0.99 # tensorflow bn_mom
+        bn_mom = 1 - bn_mom # pytorch = 1 - tensorflow
         bn_eps=1e-3
         hidden_dim = in_planes * expand_ratio
         reduced_dim = max(1, int(in_planes / reduction_ratio))
