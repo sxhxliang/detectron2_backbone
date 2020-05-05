@@ -252,7 +252,11 @@ class BiFPN(Backbone):
 
         self._out_features = list(self._out_feature_strides.keys())
         self._out_feature_channels = {k: out_channels for k in self._out_features}
-        self._size_divisibility = in_strides[-1]
+        self._size_divisibility = self._out_feature_strides[self._out_features[-1]]
+
+    @property
+    def size_divisibility(self):
+        return self._size_divisibility
 
     def forward(self, x):
         bottom_up_features = self.bottom_up(x)
@@ -260,6 +264,7 @@ class BiFPN(Backbone):
         features = self.bifpn(features)
         assert len(self._out_features) == len(features)
         return dict(zip(self._out_features, features))
+
 
 def _assert_strides_are_log2_contiguous(strides):
   """
