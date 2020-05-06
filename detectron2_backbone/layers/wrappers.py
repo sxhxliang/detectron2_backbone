@@ -7,7 +7,7 @@
 # FilePath: /detectron2_backbone/detectron2_backbone/layers/wrappers.py
 # Create: 2020-05-04 10:28:09
 # LastAuthor: Shihua Liang
-# lastTime: 2020-05-04 14:35:38
+# lastTime: 2020-05-06 10:58:46
 # --------------------------------------------------------
 import math
 
@@ -144,73 +144,49 @@ class Conv2d(_Conv2d):
             x = self.activation(x)
         return x
 
-class SeparableConv2d(_Conv2d):
+class SeparableConv2d(nn.Module):  # Depth wise separable conv
     def __init__(self, in_channels, out_channels, kernel_size, 
                 stride=1,padding=0, dilation=1, 
                 bias=True, padding_mode='zeros', norm=None, activation=None):
-        # depthwise_conv
-        depthwise_bias = False
-        depthwise_groups = in_channels
-        super(SeparableConv2d, self).__init__(
-                in_channels, in_channels, kernel_size, stride, padding, dilation, 
-                depthwise_groups, depthwise_bias, padding_mode
-            )
-        # pointwise_conv
-        point_kernel_size = _pair(1)
+        super(SeparableConv2d, self).__init__()
+
+        self.in_channels = in_channels
         self.out_channels = out_channels
-        self.point_stride = _pair(1)
-        self.point_padding = _pair(0)
-        self.point_dilation = _pair(1)
-        self.point_groups = 1
+        self.kernel_size = _pair(kernel_size)
+        self.stride = _pair(stride)
+        self.dilation = _pair(dilation)
+        self.groups = in_channels
+        self.bias = bias
+        self.padding_mode = padding_mode
 
-        self.weight2 = Parameter(torch.Tensor(
-                out_channels, in_channels, *point_kernel_size))
-        if bias:
-            self.bias2 = Parameter(torch.Tensor(out_channels))
-        else:
-            self.register_parameter('bias2', None)
-        self.reset_point_parameters()
+        self.depthwise = Conv2d(in_channels, in_channels, kernel_size,
+                               stride, padding, dilation, groups=in_channels, bias=False, padding_mode=padding_mode)  
+        self.pointwise = Conv2d(in_channels, out_channels, 1, 1, 0, 1, 1, bias=bias, padding_mode=padding_mode, norm=norm, activation=activation)
 
+        self.padding = self.depthwise.padding
         self.norm = norm
         self.activation = activation
 
-    def reset_point_parameters(self):
-        init.kaiming_uniform_(self.weight2, a=math.sqrt(5))
-        if self.bias is not None:
-            fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight2)
-            bound = 1 / math.sqrt(fan_in)
-            init.uniform_(self.bias2, -bound, bound)
-    
-    def forward(self, input):
-        # depthwise_conv
-        x = self.conv2d_forward(input, self.weight)
-        # pointwise_conv
-        x = F.conv2d(x, self.weight2, self.bias2, self.point_stride,
-                        self.point_padding, self.point_dilation, self.point_groups)
-
-        if self.norm is not None:
-            x = self.norm(x)
-        if self.activation is not None:
-            x = self.activation(x)
+    def forward(self, x):
+        x = self.depthwise(x)
+        x = self.pointwise(x)
         return x
-
-    def extra_repr(self):
+    
+    def __repr__(self):
         s = ('{in_channels}, {out_channels}, kernel_size={kernel_size}'
              ', stride={stride}')
         if self.padding != (0,) * len(self.padding):
             s += ', padding={padding}'
         if self.dilation != (1,) * len(self.dilation):
             s += ', dilation={dilation}'
-        if self.output_padding != (0,) * len(self.output_padding):
-            s += ', output_padding={output_padding}'
         if self.groups != 1:
             s += ', groups={groups}'
-        if self.bias2 is None:
+        if self.pointwise.bias is None:
             s += ', bias=False'
         if self.padding_mode != 'zeros':
             s += ', padding_mode={padding_mode}'
-        return s.format(**self.__dict__)
-
+        return self.__class__.__name__ +'('+ s.format(**self.__dict__) + ')'
+        
 
 class MaxPool2d(nn.Module):
     def __init__(self, kernel_size, stride=None, padding=0, dilation=1, return_indices=False, ceil_mode=False, padding_mode='static_same'):

@@ -7,7 +7,7 @@
 # FilePath: /detectron2_backbone/detectron2_backbone/backbone/bifpn.py
 # Create: 2020-05-04 10:26:54
 # LastAuthor: Shihua Liang
-# lastTime: 2020-05-04 14:37:58
+# lastTime: 2020-05-06 11:47:45
 # --------------------------------------------------------
 import math
 
@@ -32,42 +32,6 @@ class BiFPNLayer(nn.Module):
         self.attention = attention
         self.lateral = lateral
         
-
-        if lateral:
-            mom = 0.01
-            eps = 1e-3
-            self.lateral3 = nn.Sequential(
-                Conv2d(in_channels[0], out_channels, 1, stride=1, padding_mode='static_same'),
-                nn.BatchNorm2d(out_channels, momentum=mom, eps=eps),
-            )
-            self.lateral4 = nn.Sequential(
-                Conv2d(in_channels[1], out_channels, 1, stride=1, padding_mode='static_same'),
-                nn.BatchNorm2d(out_channels, momentum=mom, eps=eps),
-            )
-            self.lateral5 = nn.Sequential(
-                Conv2d(in_channels[2], out_channels, 1, stride=1, padding_mode='static_same'),
-                nn.BatchNorm2d(out_channels, momentum=mom, eps=eps),
-            )
-            self.top_block = top_block
-            if self.top_block is None:
-                self.lateral6 = nn.Sequential(
-                    Conv2d(out_channels, out_channels, 1, stride=1, padding_mode='static_same'),
-                    nn.BatchNorm2d(out_channels, momentum=mom, eps=eps),
-                    MaxPool2d(3, 2)
-                )
-                self.lateral7 = nn.Sequential(
-                    MaxPool2d(3, 2)
-                )
-            # backbone skip connection
-            self.p4_skip = nn.Sequential(
-                Conv2d(in_channels[1], out_channels, 1, stride=1, padding_mode='static_same'),
-                nn.BatchNorm2d(out_channels, momentum=mom, eps=eps),
-            )
-            self.p5_skip = nn.Sequential(
-                Conv2d(in_channels[2], out_channels, 1, stride=1, padding_mode='static_same'),
-                nn.BatchNorm2d(out_channels, momentum=mom, eps=eps),
-            )
-
         # Conv layers
         self.conv6_up = SeparableConv2d(out_channels, out_channels, 3, padding_mode = 'static_same')
         self.conv5_up = SeparableConv2d(out_channels, out_channels, 3, padding_mode = 'static_same')
@@ -82,18 +46,6 @@ class BiFPNLayer(nn.Module):
         self._downsample = MaxPool2d(3,2)
         self._swish = MemoryEfficientSwish()
         
-    def _forward_lateral(self, inputs):
-        c3, c4, c5 = inputs
-        c3 = self.lateral3(c3)
-        c4 = self.lateral4(c4)
-        
-        if self.top_block is None:
-            c6 = self.lateral6(c5)
-            c7 = self.lateral7(c6)
-        else:
-            c6, c7 = self.top_block(c5)
-        c5 = self.lateral5(c5)
-        return c3, c4, c5, c6, c7
 
     def init_attention_weights(self):
         # top-down Weight
@@ -106,7 +58,6 @@ class BiFPNLayer(nn.Module):
         self.p5_w2 = nn.Parameter(torch.ones(3, dtype=torch.float32), requires_grad=True)
         self.p6_w2 = nn.Parameter(torch.ones(3, dtype=torch.float32), requires_grad=True)
         self.p7_w2 = nn.Parameter(torch.ones(2, dtype=torch.float32), requires_grad=True)
-        self._relu = nn.ReLU()
     
     def _weight_act(self, weight):
         weight = F.relu(weight)
@@ -120,6 +71,7 @@ class BiFPNLayer(nn.Module):
         if self.attention and indice > 0:
             # print('up indice', indice)
             weight = getattr(self, "p{}_w1".format(indice))
+            weight = self._weight_act(weight)
             return weight[0] * cur_feature + weight[1] * top_feature
         else:
             return cur_feature + top_feature
@@ -128,6 +80,7 @@ class BiFPNLayer(nn.Module):
         _downsample = self._downsample(bottom_feature)
         if self.attention and indice > 0:
             weight = getattr(self, "p{}_w2".format(indice))
+            weight = self._weight_act(weight)
             if isinstance(skip_feature, torch.Tensor):
                 # print('down skip_feature indice', indice)
                 return weight[0] * skip_feature + weight[1] * cur_feature + weight[2] * _downsample
@@ -150,13 +103,12 @@ class BiFPNLayer(nn.Module):
         p3_up = self.conv3_up(self._swish(self._feature_funsion(p3_in, p4_up, 3)))
         return p3_up, p4_up, p5_up, p6_up, p7_in
     
-    def _forward_down(self, inputs, up_inputs, p3=None, p4=None, p5=None):
+    def _forward_down(self, inputs, up_inputs, skip_features):
         _, p4_in, p5_in, p6_in, p7_in = inputs
         p3_up, p4_up, p5_up, p6_up, _ = up_inputs
 
         if self.lateral:
-            p4_in = self.p4_skip(p4)
-            p5_in = self.p5_skip(p5)
+            p4_in, p5_in = skip_features
 
         p4_out = self.conv4_down(self._swish(
             self._feature_funsion2(p4_in, p4_up, p3_up, 4)))
@@ -168,18 +120,57 @@ class BiFPNLayer(nn.Module):
             self._feature_funsion2(None, p7_in, p6_out, 7)))
         return p3_up, p4_out, p5_out, p6_out, p7_out
 
-    def forward(self,inputs):
-        p3 = p4 = p5 = None
-        if self.lateral:
-            p3, p4, p5 = inputs
-            inputs = self._forward_lateral(inputs)
-
+    def forward(self, inputs, skip_features=None):
         up_inputs = self._forward_up(inputs)
-        return self._forward_down(inputs, up_inputs, p3, p4, p5)
+        
+        return self._forward_down(inputs, up_inputs, skip_features), None
 
     def set_swish(self, memory_efficient=True):
         """Sets swish function as memory efficient (for training) or standard (for export)"""
         self._swish = MemoryEfficientSwish() if memory_efficient else Swish()
+
+class BeforeBiFPNLayer(nn.Module):
+    def __init__(self, out_channels, in_channels=None, epsilon=1e-4, top_block=None):
+        super(BeforeBiFPNLayer, self).__init__()
+        self.epsilon = epsilon
+        mom = 0.01
+        eps = 1e-3
+
+        self.lateral3 = nn.Sequential(
+                Conv2d(in_channels[0], out_channels, 1, stride=1, padding_mode='static_same'),
+                nn.BatchNorm2d(out_channels, momentum=mom, eps=eps),
+        )
+        self.lateral4 = nn.Sequential(
+            Conv2d(in_channels[1], out_channels, 1, stride=1, padding_mode='static_same'),
+            nn.BatchNorm2d(out_channels, momentum=mom, eps=eps),
+        )
+        self.lateral5 = nn.Sequential(
+            Conv2d(in_channels[2], out_channels, 1, stride=1, padding_mode='static_same'),
+            nn.BatchNorm2d(out_channels, momentum=mom, eps=eps),
+        )
+        self.top_block = top_block
+
+
+        # backbone skip connection
+        self.p4_skip = nn.Sequential(
+            Conv2d(in_channels[1], out_channels, 1, stride=1, padding_mode='static_same'),
+            nn.BatchNorm2d(out_channels, momentum=mom, eps=eps),
+        )
+        self.p5_skip = nn.Sequential(
+            Conv2d(in_channels[2], out_channels, 1, stride=1, padding_mode='static_same'),
+            nn.BatchNorm2d(out_channels, momentum=mom, eps=eps),
+        )
+       
+
+    def forward(self, inputs):
+        c3, c4, c5, c6, c7 = inputs
+        c3 = self.lateral3(c3)
+        c4 = self.lateral4(c4)
+        c5 = self.lateral5(c5)
+
+        c4_skip =self.p4_skip(c4)
+        c5_skip =self.p5_skip(c5)
+        return tuple(c3 ,c4, c5, c6, c7), tuple(c4_skip, c5_skip)
 
 class BiFPN(Backbone):
     """
@@ -241,13 +232,14 @@ class BiFPN(Backbone):
             self._out_feature_strides[f"p{s + 1}"] = 2 ** (s + 1)
 
         _assert_strides_are_log2_contiguous(in_strides)
-            
+        self.before_bifpn = BeforeBiFPNLayer(out_channels, in_channels, top_block=top_block)
         layers = []
-        lateral = False
+        lateral = True
+        first_layer = True
         for i in range(fpn_repeat):
             lateral = True if i == 0 else False
-            if i > 0: top_block = None
-            layers.append(BiFPNLayer(out_channels, in_channels, lateral=lateral, top_block=top_block))
+            if i > 0: lateral = False
+            layers.append(BiFPNLayer(out_channels, in_channels, lateral=lateral))
         self.bifpn = nn.Sequential(*layers)
 
         self._out_features = list(self._out_feature_strides.keys())
@@ -259,9 +251,25 @@ class BiFPN(Backbone):
         return self._size_divisibility
 
     def forward(self, x):
+        """
+        Args:
+            input (dict[str->Tensor]): mapping feature map name (e.g., "res5") to
+                feature map tensor for each feature level in high to low resolution order.
+
+        Returns:
+            dict[str->Tensor]:
+                mapping from feature map name to FPN feature map tensor
+                in high to low resolution order. Returned feature names follow the FPN
+                paper convention: "p<stage>", where stage has stride = 2 ** stage e.g.,
+                ["p2", "p3", ..., "p6"].
+        """
+        # Reverse feature maps into top-down order (from low to high resolution)
         bottom_up_features = self.bottom_up(x)
         features = [bottom_up_features[f] for f in self.in_features]
-        features = self.bifpn(features)
+
+        lateral_features, skip_features = self.before_bifpn(features)
+        
+        features = self.bifpn(lateral_features, skip_features)
         assert len(self._out_features) == len(features)
         return dict(zip(self._out_features, features))
 

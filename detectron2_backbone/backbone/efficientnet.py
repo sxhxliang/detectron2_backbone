@@ -7,7 +7,7 @@
 # FilePath: /detectron2_backbone/detectron2_backbone/backbone/efficientnet.py
 # Create: 2020-05-03 22:08:40
 # LastAuthor: Shihua Liang
-# lastTime: 2020-05-05 11:42:13
+# lastTime: 2020-05-06 10:30:19
 # --------------------------------------------------------
 import math
 
@@ -47,8 +47,8 @@ model_urls = {
 }
 
 params = {
-    'efficientnet_b0': (1.0, 1.0, 224, 0.2),
-    'efficientnet_b1': (1.0, 1.1, 240, 0.2),
+    'efficientnet_b0': (1.0, 1.0, 224, 0.2), # stride=2:  ----> block 1 ,3, 5, 11
+    'efficientnet_b1': (1.0, 1.1, 240, 0.2), # stride=2:  ----> block 2, 5, 8, 16
     'efficientnet_b2': (1.1, 1.2, 260, 0.3),
     'efficientnet_b3': (1.2, 1.4, 300, 0.3),
     'efficientnet_b4': (1.4, 1.8, 380, 0.4),
@@ -73,9 +73,9 @@ class MBConvBlock(nn.Module):
         self.use_se = use_se
         assert stride in [1, 2]
         assert kernel_size in [3, 5]
-        bn_mom=0.99 # tensorflow bn_mom
-        bn_mom = 1 - bn_mom # pytorch = 1 - tensorflow
-        bn_eps=1e-3
+        bn_mom = 0.99 # tensorflow bn_mom
+        bn_mom = round(1 - bn_mom, 3) # pytorch = 1 - tensorflow
+        bn_eps = 1e-3
         hidden_dim = in_planes * expand_ratio
         reduced_dim = max(1, int(in_planes / reduction_ratio))
 
