@@ -7,7 +7,7 @@
 # FilePath: /detectron2_backbone/detectron2_backbone/backbone/bifpn.py
 # Create: 2020-05-04 10:26:54
 # LastAuthor: Shihua Liang
-# lastTime: 2020-05-06 12:23:47
+# lastTime: 2020-05-06 19:57:30
 # --------------------------------------------------------
 import math
 
@@ -25,22 +25,42 @@ from detectron2.layers import FrozenBatchNorm2d, ShapeSpec, get_norm
 from ..layers import Conv2d, SeparableConv2d, MaxPool2d, Swish, MemoryEfficientSwish
 from .efficientnet import build_efficientnet_backbone
 
+class Attention(nn.Module):
+    def __init__(self, num_inputs, eps=1e-3):
+        super().__init__()
+        self.num_inputs = num_inputs
+        self.atten_w = nn.Parameter(torch.ones(num_inputs))
+        self.eps = eps
+
+    def forward(self, inputs):
+        assert isinstance(inputs, list) and len(inputs) == self.num_inputs
+        atten_w = F.relu(self.atten_w)
+        return sum(x_ * w for x_, w in zip(inputs, atten_w)) / (atten_w.sum() + self.eps)
+
+    def __repr__(self):
+        s = ('num_inputs={num_inputs}'
+             ', eps={eps}')
+        return self.__class__.__name__ +'('+ s.format(**self.__dict__) + ')'
+ 
+
 class BiFPNLayer(nn.Module):
-    def __init__(self, out_channels, in_channels=None, lateral=False, attention=True, epsilon=1e-4, top_block=None):
+    def __init__(self, out_channels, in_channels=None, lateral=False, attention=True, norm='', epsilon=1e-4, top_block=None):
         super(BiFPNLayer, self).__init__()
         self.epsilon = epsilon
         self.attention = attention
         self.lateral = lateral
+        mom = 0.01
+        eps = 1e-3
         
         # Conv layers
-        self.conv6_up = SeparableConv2d(out_channels, out_channels, 3, padding_mode = 'static_same')
-        self.conv5_up = SeparableConv2d(out_channels, out_channels, 3, padding_mode = 'static_same')
-        self.conv4_up = SeparableConv2d(out_channels, out_channels, 3, padding_mode = 'static_same')
-        self.conv3_up = SeparableConv2d(out_channels, out_channels, 3, padding_mode = 'static_same')
-        self.conv4_down = SeparableConv2d(out_channels, out_channels, 3, padding_mode = 'static_same')
-        self.conv5_down = SeparableConv2d(out_channels, out_channels, 3, padding_mode = 'static_same')
-        self.conv6_down = SeparableConv2d(out_channels, out_channels, 3, padding_mode = 'static_same')
-        self.conv7_down = SeparableConv2d(out_channels, out_channels, 3, padding_mode = 'static_same')
+        self.conv6_up = SeparableConv2d(out_channels, out_channels, 3, padding_mode='static_same', norm=norm, momentum=mom, eps=eps)
+        self.conv5_up = SeparableConv2d(out_channels, out_channels, 3, padding_mode='static_same', norm=norm, momentum=mom, eps=eps)
+        self.conv4_up = SeparableConv2d(out_channels, out_channels, 3, padding_mode='static_same', norm=norm, momentum=mom, eps=eps)
+        self.conv3_up = SeparableConv2d(out_channels, out_channels, 3, padding_mode='static_same', norm=norm, momentum=mom, eps=eps)
+        self.conv4_down = SeparableConv2d(out_channels, out_channels, 3, padding_mode='static_same', norm=norm, momentum=mom, eps=eps)
+        self.conv5_down = SeparableConv2d(out_channels, out_channels, 3, padding_mode='static_same', norm=norm, momentum=mom, eps=eps)
+        self.conv6_down = SeparableConv2d(out_channels, out_channels, 3, padding_mode='static_same', norm=norm, momentum=mom, eps=eps)
+        self.conv7_down = SeparableConv2d(out_channels, out_channels, 3, padding_mode='static_same', norm=norm, momentum=mom, eps=eps)
         if attention:
             self.init_attention_weights()
         self._downsample = MaxPool2d(3,2)
@@ -63,29 +83,30 @@ class BiFPNLayer(nn.Module):
         weight = F.relu(weight)
         return weight / (torch.sum(weight, dim=0) + self.epsilon)
 
+    def _attention(self, weight, inputs):
+        assert isinstance(inputs, list) and len(inputs) == len(weight)
+        return sum(x_ * w for x_, w in zip(inputs, weight))
+
     def _upsample(self, x):
         return F.interpolate(x, scale_factor=2, mode='nearest')
 
     def _feature_funsion(self, cur_feature, top_feature, indice=-1):
         top_feature = self._upsample(top_feature)
         if self.attention and indice > 0:
-            # print('up indice', indice)
             weight = getattr(self, "p{}_w1".format(indice))
-            weight = self._weight_act(weight)
-            return weight[0] * cur_feature + weight[1] * top_feature
+            return self._attention(weight, [cur_feature, top_feature])
         else:
             return cur_feature + top_feature
     
     def _feature_funsion2(self, skip_feature, cur_feature, bottom_feature, indice=-1):
         _downsample = self._downsample(bottom_feature)
         if self.attention and indice > 0:
-            weight = getattr(self, "p{}_w2".format(indice))
-            weight = self._weight_act(weight)
             if isinstance(skip_feature, torch.Tensor):
-                # print('down skip_feature indice', indice)
-                return weight[0] * skip_feature + weight[1] * cur_feature + weight[2] * _downsample
+                weight = getattr(self, "p{}_w2".format(indice))
+                return self._attention(weight, [skip_feature, cur_feature, _downsample])
             else:
-                return weight[0] * cur_feature + weight[1] * _downsample
+                weight = getattr(self, "p{}_w2".format(indice))
+                return self._attention(weight, [cur_feature, _downsample])
         else:
             if isinstance(skip_feature, torch.Tensor):
                 return skip_feature + cur_feature + _downsample
@@ -243,7 +264,7 @@ class BiFPN(Backbone):
         for i in range(fpn_repeat):
             lateral = True if i == 0 else False
             if i > 0: lateral = False
-            layers.append(BiFPNLayer(out_channels, in_channels, lateral=lateral))
+            layers.append(BiFPNLayer(out_channels, in_channels, norm=norm, lateral=lateral))
         self.bifpn = nn.Sequential(*layers)
 
         self._out_features = list(self._out_feature_strides.keys())
@@ -304,16 +325,17 @@ class LastLevelP6P7(nn.Module):
   C5 feature.
   """
 
-  def __init__(self, in_channels, out_channels, in_feature="res5", norm=''):
-    super().__init__()
-    self.num_levels = 2
-    self.p6 = ResampleFeature(in_channels, out_channels, 1, norm=norm)
-    self.p7 = ResampleFeature(out_channels, out_channels, 1, norm=norm)
+    def __init__(self, in_channels, out_channels, norm=''):
+        super().__init__()
+        self.num_levels = 2
+        self.p6 = ResampleFeature(in_channels, out_channels, 1, norm=norm)
+        self.p7 = MaxPool2d(kernel_size=3, stride=2, padding_mode="static_same")
+        # ResampleFeature(out_channels, out_channels, 1, norm=norm)
 
-  def forward(self, p5):
-    p6 = self.p6(p5)
-    p7 = self.p7(p6)
-    return [p6, p7]
+    def forward(self, p5):
+        p6 = self.p6(p5)
+        p7 = self.p7(p6)
+        return [p6, p7]
 
 @BACKBONE_REGISTRY.register()
 def build_efficientnet_bifpn_backbone(cfg, input_shape: ShapeSpec):

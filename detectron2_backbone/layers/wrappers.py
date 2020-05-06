@@ -7,7 +7,7 @@
 # FilePath: /detectron2_backbone/detectron2_backbone/layers/wrappers.py
 # Create: 2020-05-04 10:28:09
 # LastAuthor: Shihua Liang
-# lastTime: 2020-05-06 10:58:46
+# lastTime: 2020-05-06 19:43:34
 # --------------------------------------------------------
 import math
 
@@ -17,6 +17,8 @@ from torch.nn import init
 from torch.nn import functional as F
 from torch.nn.parameter import Parameter
 from torch.nn.modules.utils import _single, _pair, _triple, _ntuple
+
+from detectron2.layers.batch_norm import get_norm
 
 TORCH_VERSION = tuple(int(x) for x in torch.__version__.split(".")[:2])
 
@@ -40,21 +42,21 @@ class _Conv2d(nn.Conv2d):
                 in_channels, out_channels, kernel_size, 
                 stride=1, padding=0, dilation=1, groups=1,
                 bias=True, padding_mode='zeros', image_size=None):
-
+        self.padding_mode = padding_mode
         kernel_size = _pair(kernel_size)
         stride = _pair(stride)
         padding = _pair(padding)
         dilation = _pair(dilation)
 
+        # pading format: 
+        #     tuple(pad_l, pad_r, pad_t, pad_b) or default
         if padding_mode == 'static_same':
             p = max(kernel_size[0] - stride[0], 0)
-            # tuple(pad_l, pad_r, pad_t, pad_b)
             padding = (p // 2, p - p // 2, p // 2, p - p // 2)
         elif padding_mode == 'dynamic_same':
             padding = _pair(0)
-    
         super(_Conv2d, self).__init__(
-            in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode)
+            in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
 
     def conv2d_forward(self, input, weight):
         if self.padding_mode == 'circular':
@@ -62,7 +64,7 @@ class _Conv2d(nn.Conv2d):
                                 (self.padding[0] + 1) // 2, self.padding[0] // 2)
             input = F.pad(input, expanded_padding, mode='circular')
 
-        if  self.padding_mode == 'dynamic_same':
+        elif  self.padding_mode == 'dynamic_same':
             ih, iw = x.size()[-2:]
             kh, kw = self.weight.size()[-2:]
             sh, sw = self.stride
@@ -70,11 +72,12 @@ class _Conv2d(nn.Conv2d):
             pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
             pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
             if pad_h > 0 or pad_w > 0:
-                # tuple(pad_l, pad_r, pad_t, pad_b)
                 input = F.pad(input, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
         
-        if  self.padding_mode == 'static_same':
-                input = F.pad(input, self.padding)
+        elif  self.padding_mode == 'static_same':
+            input = F.pad(input, self.padding)
+        else: #default padding
+            input = F.pad(input, self.padding)
 
         return F.conv2d(input, 
                         weight, self.bias, self.stride,
@@ -83,6 +86,22 @@ class _Conv2d(nn.Conv2d):
     def forward(self, input):
         return self.conv2d_forward(input, self.weight)
 
+    def __repr__(self):
+        s = ('{in_channels}, {out_channels}, kernel_size={kernel_size}'
+             ', stride={stride}')
+        if self.padding != (0,) * len(self.padding):
+            s += ', padding={padding}'
+        if self.dilation != (1,) * len(self.dilation):
+            s += ', dilation={dilation}'
+        if self.output_padding != (0,) * len(self.output_padding):
+            s += ', output_padding={output_padding}'
+        if self.groups != 1:
+            s += ', groups={groups}'
+        if self.bias is None:
+            s += ', bias=False'
+        if self.padding_mode != 'zeros':
+            s += ', padding_mode={padding_mode}'
+        return self.__class__.__name__ +'('+ s.format(**self.__dict__) + ')'
 
 class Conv2d(_Conv2d):
     """
@@ -147,7 +166,7 @@ class Conv2d(_Conv2d):
 class SeparableConv2d(nn.Module):  # Depth wise separable conv
     def __init__(self, in_channels, out_channels, kernel_size, 
                 stride=1,padding=0, dilation=1, 
-                bias=True, padding_mode='zeros', norm=None, activation=None):
+                bias=True, padding_mode='zeros', norm=None, eps=1e-05, momentum=0.1, activation=None):
         super(SeparableConv2d, self).__init__()
 
         self.in_channels = in_channels
@@ -161,18 +180,28 @@ class SeparableConv2d(nn.Module):  # Depth wise separable conv
 
         self.depthwise = Conv2d(in_channels, in_channels, kernel_size,
                                stride, padding, dilation, groups=in_channels, bias=False, padding_mode=padding_mode)  
-        self.pointwise = Conv2d(in_channels, out_channels, 1, 1, 0, 1, 1, bias=bias, padding_mode=padding_mode, norm=norm, activation=activation)
+        self.pointwise = Conv2d(in_channels, out_channels, 1, 1, 0, 1, 1, bias=bias, padding_mode=padding_mode)
 
         self.padding = self.depthwise.padding
-        self.norm = norm
+        self.norm = None if norm == "" else norm
+        if self.norm is not None:
+            self.norm = get_norm(norm, out_channels)
+            assert self.norm != None
+            self.norm.eps = eps
+            self.norm.momentum = momentum
         self.activation = activation
 
     def forward(self, x):
         x = self.depthwise(x)
         x = self.pointwise(x)
+        if self.norm is not None:
+            x = self.norm(x)
+        if self.activation is not None:
+            x = self.activation(x)
         return x
     
     def __repr__(self):
+   
         s = ('{in_channels}, {out_channels}, kernel_size={kernel_size}'
              ', stride={stride}')
         if self.padding != (0,) * len(self.padding):
@@ -185,7 +214,11 @@ class SeparableConv2d(nn.Module):  # Depth wise separable conv
             s += ', bias=False'
         if self.padding_mode != 'zeros':
             s += ', padding_mode={padding_mode}'
-        return self.__class__.__name__ +'('+ s.format(**self.__dict__) + ')'
+        if self.norm is not None:
+            s = "  " + s + '\n    norm='+ self.norm.__repr__()
+            return self.__class__.__name__ +'(\n  '+ s.format(**self.__dict__) + '\n)'
+        else:
+            return self.__class__.__name__ +'('+ s.format(**self.__dict__) + ')'
         
 
 class MaxPool2d(nn.Module):
