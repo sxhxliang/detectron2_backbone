@@ -7,7 +7,7 @@
 # FilePath: /detectron2_backbone/detectron2_backbone/backbone/bifpn.py
 # Create: 2020-05-04 10:26:54
 # LastAuthor: Shihua Liang
-# lastTime: 2020-05-06 11:54:57
+# lastTime: 2020-05-06 11:57:25
 # --------------------------------------------------------
 import math
 
@@ -164,12 +164,14 @@ class BeforeBiFPNLayer(nn.Module):
 
     def forward(self, inputs):
         c3, c4, c5 = inputs
+        
+        c4_skip =self.p4_skip(c4)
+        c5_skip =self.p5_skip(c5)
+
         c3 = self.lateral3(c3)
         c4 = self.lateral4(c4)
         c5 = self.lateral5(c5)
 
-        c4_skip =self.p4_skip(c4)
-        c5_skip =self.p5_skip(c5)
         return tuple(c3 ,c4, c5, c6, c7), tuple(c4_skip, c5_skip)
 
 class BiFPN(Backbone):
