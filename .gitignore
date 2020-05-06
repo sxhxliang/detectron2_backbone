@@ -8,6 +8,10 @@ build/
 dist/
 debug/
 example/
+.idea
+.vscode
+.python-version
+
 
 # pytorch/python/numpy formats
 *.pth

@@ -7,7 +7,7 @@
 # FilePath: /detectron2_backbone/detectron2_backbone/backbone/bifpn.py
 # Create: 2020-05-04 10:26:54
 # LastAuthor: Shihua Liang
-# lastTime: 2020-05-06 11:57:25
+# lastTime: 2020-05-06 12:23:47
 # --------------------------------------------------------
 import math
 
@@ -103,9 +103,9 @@ class BiFPNLayer(nn.Module):
         p3_up = self.conv3_up(self._swish(self._feature_funsion(p3_in, p4_up, 3)))
         return p3_up, p4_up, p5_up, p6_up, p7_in
     
-    def _forward_down(self, inputs, up_inputs, skip_features):
-        _, p4_in, p5_in, p6_in, p7_in = inputs
-        p3_up, p4_up, p5_up, p6_up, _ = up_inputs
+    def _forward_down(self, laterals, up_features, skip_features):
+        _, p4_in, p5_in, p6_in, p7_in = laterals
+        p3_up, p4_up, p5_up, p6_up, _ = up_features
 
         if self.lateral:
             p4_in, p5_in = skip_features
@@ -120,10 +120,11 @@ class BiFPNLayer(nn.Module):
             self._feature_funsion2(None, p7_in, p6_out, 7)))
         return p3_up, p4_out, p5_out, p6_out, p7_out
 
-    def forward(self, inputs, skip_features=None):
-        up_inputs = self._forward_up(inputs)
+    def forward(self, inputs):
+        laterals, skip_features = inputs
+        up_features = self._forward_up(laterals)
         
-        return self._forward_down(inputs, up_inputs, skip_features), None
+        return self._forward_down(laterals, up_features, skip_features), None
 
     def set_swish(self, memory_efficient=True):
         """Sets swish function as memory efficient (for training) or standard (for export)"""
@@ -167,12 +168,13 @@ class BeforeBiFPNLayer(nn.Module):
         
         c4_skip =self.p4_skip(c4)
         c5_skip =self.p5_skip(c5)
+        c6, c7 = self.top_block(c5)
 
         c3 = self.lateral3(c3)
         c4 = self.lateral4(c4)
         c5 = self.lateral5(c5)
 
-        return tuple(c3 ,c4, c5, c6, c7), tuple(c4_skip, c5_skip)
+        return (c3 ,c4, c5, c6, c7), (c4_skip, c5_skip)
 
 class BiFPN(Backbone):
     """
@@ -271,7 +273,7 @@ class BiFPN(Backbone):
 
         lateral_features, skip_features = self.before_bifpn(features)
         
-        features = self.bifpn(lateral_features, skip_features)
+        features, _ = self.bifpn((lateral_features, skip_features))
         assert len(self._out_features) == len(features)
         return dict(zip(self._out_features, features))
 
