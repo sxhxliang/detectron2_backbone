@@ -7,7 +7,7 @@
 # FilePath: /detectron2_backbone/detectron2_backbone/tools/convert_weight.py
 # Create: 2020-05-05 07:32:08
 # LastAuthor: Shihua Liang
-# lastTime: 2020-05-05 08:12:57
+# lastTime: 2020-07-02 21:51:57
 # --------------------------------------------------------
 import torch
 import argparse
@@ -33,23 +33,15 @@ def get_parser():
     return parser
 
 
-def rename_resnet_param_names(ckpt_state_dict):
-    converted_state_dict = OrderedDict()
-    for key in ckpt_state_dict.keys():
-        value = ckpt_state_dict[key]
-        key = "backbone.bottom_up.{}".format(key)
-
-        converted_state_dict[key] = value
-    return converted_state_dict
-
-
 def convert_weight():
     args = get_parser().parse_args()
-    ckpt = torch.load(args.model)
+    ckpt = torch.load(args.model, map_location="cpu")
     if "model" in ckpt:
-        model = rename_resnet_param_names(ckpt["model"])
+        state_dict = ckpt["model"]
     else:
-        model = rename_resnet_param_names(ckpt)
+        state_dict = ckpt
+    model = {"model": state_dict, "__author__": "custom", "matching_heuristics": True}
+
     torch.save(model, args.output)
 
 if __name__ == "__main__":
