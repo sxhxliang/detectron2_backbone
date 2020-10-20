@@ -320,10 +320,10 @@ class ResampleFeature(nn.Module):
         return self.resample(self.norm(self.conv(x)))
 
 class LastLevelP6P7(nn.Module):
-  """
-  This module is used in RetinaNet to generate extra layers, P6 and P7 from
-  C5 feature.
-  """
+    """
+    This module is used in RetinaNet to generate extra layers, P6 and P7 from
+    C5 feature.
+    """
 
     def __init__(self, in_channels, out_channels, norm=''):
         super().__init__()
